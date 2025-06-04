@@ -1,22 +1,17 @@
 document.addEventListener("DOMContentLoaded", () => {
   console.log("DOM fully loaded and parsed");
 
-  let testMode = true; // Set to true for testing purposes
+  // Get promoStart and promoEnd from the script tag's data attributes
+  const scriptTag = document.querySelector('script[src*="popup.js"]');
+  const promoStart = new Date(scriptTag.getAttribute("data-promo-start"));
+  const promoEnd = new Date(scriptTag.getAttribute("data-promo-end"));
+
+  console.log("Promo Start:", promoStart);
+  console.log("Promo End:", promoEnd);
+
   // Check if the promotion is active
   const today = new Date();
-  let promoStart, promoEnd;
-
-  if (testMode) {
-    promoStart = new Date(today);
-    promoEnd = new Date(today);
-    promoEnd.setDate(promoEnd.getDate() + 1); // Set end date to tomorrow
-  } else {
-    promoStart = new Date("2025-06-11");
-    promoEnd = new Date("2025-07-11");
-  }
-
   if (today >= promoStart && today <= promoEnd) {
-    const scriptTag = document.querySelector('script[src*="popup.js"]');
     const title = scriptTag.getAttribute("data-title") || "Default Title";
     const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
 
@@ -49,9 +44,9 @@ function showPromoPopup(title, image) {
     <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; max-width: 400px;">
       <h2>${title}</h2>
       <img src="${image}" alt="${title}" style="width: 100%; max-width: 200px; margin: 10px 0;">
-      <div class="float-md-end">
-        <button id="add-free-gift" class="btn secondary">Yes</button>
-        <button id="decline-free-gift" class="btn secondary" style="opacity: .6">No</button>
+      <div style="margin-top: 20px;">
+        <button id="add-free-gift" class="btn secondary" style="margin-right: 10px;">Yes</button>
+        <button id="decline-free-gift" class="btn secondary" style="opacity: .6;">No</button>
       </div>
     </div>
   `;
