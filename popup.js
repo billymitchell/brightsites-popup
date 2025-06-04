@@ -16,13 +16,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (today >= promoStart && today <= promoEnd) {
-    showPromoPopup();
+    const scriptTag = document.querySelector('script[src*="popup.js"]');
+    const title = scriptTag.getAttribute("data-title") || "Default Title";
+    const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
+
+    console.log("Title:", title);
+    console.log("Image:", image);
+
+    // Use these variables in your popup
+    showPromoPopup(title, image);
   } else {
     console.log("Promotion is not active.");
   }
 });
 
-function showPromoPopup() {
+function showPromoPopup(title, image) {
   // Create the pop-up modal
   const popup = document.createElement("div");
   popup.id = "promo-popup";
@@ -39,11 +47,11 @@ function showPromoPopup() {
 
   popup.innerHTML = `
     <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; max-width: 400px;">
-      <h2 style="margin-top: 0px; padding-top: 0px;">Would you like a FREE Rosie Magnet?</h2>
-      <img src="/no-image.jpg" alt="Rosie Magnet" style="width: 100%; max-width: 200px; margin: 10px 0;">
+      <h2>${title}</h2>
+      <img src="${image}" alt="${title}" style="width: 100%; max-width: 200px; margin: 10px 0;">
       <div class="float-md-end">
-        <button id="add-free-gift" class="btn secondary">Yes, Add Now</button>
-        <button id="decline-free-gift" class="btn secondary" style="opacity: .6">No, Thank You</button>
+        <button id="add-free-gift" class="btn secondary">Yes</button>
+        <button id="decline-free-gift" class="btn secondary" style="opacity: .6">No</button>
       </div>
     </div>
   `;
@@ -62,8 +70,11 @@ function showPromoPopup() {
 }
 
 function addFreeGiftToCart() {
+  // Get the free gift URL from the script tag's data attribute
+  const scriptTag = document.querySelector('script[src*="popup.js"]');
+  const freeGiftPageUrl = scriptTag.getAttribute("data-free-gift-url") || "/default-product-url";
+
   // Redirect to the item's page
-  const freeGiftPageUrl = "/products/1627448"; // Replace with the actual product page URL
   window.location.href = freeGiftPageUrl;
 }
 
