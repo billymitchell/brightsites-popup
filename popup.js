@@ -41,7 +41,15 @@ function showPromoPopup(title, image) {
   popup.style.zIndex = "1000";
 
   popup.innerHTML = `
-    <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; max-width: 400px;">
+    <div style="
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;">
       <h2>${title}</h2>
       <img src="${image}" alt="${title}" style="width: 100%; max-width: 200px; margin: 10px 0;">
       <div style="margin-top: 20px;">
