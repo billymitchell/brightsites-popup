@@ -208,6 +208,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     console.log("[popup.js] Promotion is active.");
 
+    // Don't show popup if the cart is empty
+    const cartSkus = getAllCartSkus();
+    if (cartSkus.length === 0) {
+      console.log("[popup.js] Cart is empty. Popup will not be shown.");
+      return;
+    }
+
     const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
 
     // Enforce: if the free gift is the only item in the cart, alert and remove it
