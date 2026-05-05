@@ -209,8 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("[popup.js] Promotion is active.");
 
     // Don't show popup if the cart is empty
-    const cartSkus = getAllCartSkus();
-    if (cartSkus.length === 0) {
+    if (document.querySelector("p.empty_cart")) {
       console.log("[popup.js] Cart is empty. Popup will not be shown.");
       return;
     }
