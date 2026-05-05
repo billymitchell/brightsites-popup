@@ -86,6 +86,50 @@ const getPromoWindowOrThrow = (scriptTag) => {
 };
 
 /**
+ * Reads cart items directly from the cart table DOM.
+ * @returns {Array<{sku: string|null}>} Cart items found in the DOM.
+ */
+const getCartItemsFromDom = () => {
+  try {
+    const rows = document.querySelectorAll("tr.cart-item");
+
+    if (rows.length === 0) {
+      console.log("[popup.js] getCartItemsFromDom: no 'tr.cart-item' rows found.");
+      return [];
+    }
+
+    const items = Array.from(rows, (row) => {
+      const skuLabels = row.querySelectorAll("span.cart-inline-title-short");
+      let sku = null;
+
+      for (const label of skuLabels) {
+        if (label.textContent.trim() !== "SKU:") continue;
+
+        const textNode = label.nextSibling;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+          console.warn("[popup.js] getCartItemsFromDom: SKU label found but adjacent text node is missing or unexpected.");
+          continue;
+        }
+
+        const parsedSku = textNode.textContent.trim();
+        if (parsedSku) {
+          sku = parsedSku;
+        }
+        break;
+      }
+
+      return { sku };
+    });
+
+    console.log("[popup.js] getCartItemsFromDom: cart items parsed from DOM:", items);
+    return items;
+  } catch (err) {
+    console.error("[popup.js] getCartItemsFromDom: unexpected error:", err.message);
+    return [];
+  }
+};
+
+/**
  * Enforces free-gift-only cart rule.
  * @param {Array<{sku?: string}>} cartItems
  * @param {string} guardSku
@@ -109,7 +153,7 @@ const enforceGuardSkuRule = (cartItems, guardSku) => {
   return true;
 };
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
   console.log("[popup.js] DOM fully loaded and parsed.");
 
   try {
@@ -141,52 +185,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     const title = scriptTag.getAttribute("data-title") ?? "Default Title";
     const image = scriptTag.getAttribute("data-image") ?? "/default-image.jpg";
 
-    // Use the cart API to reliably check cart contents before showing the popup
-    try {
-      const res = await fetch("/cart.js");
-      const cart = await res.json();
-      console.log("[popup.js] Cart API response:", cart);
+    // Read cart contents directly from DOM before showing the popup
+    const cartItems = getCartItemsFromDom();
 
-      const { items = [] } = cart || {};
-      const cartItems = Array.isArray(items) ? items : [];
+    if (cartItems.length === 0) {
+      console.log("[popup.js] Cart is empty (DOM). Popup will not be shown.");
+      return;
+    }
 
-      if (cartItems.length === 0) {
-        console.log("[popup.js] Cart is empty (via API). Popup will not be shown.");
-        return;
-      }
+    console.log("[popup.js] Cart has items (DOM):", cartItems.map(({ sku }) => sku));
 
-      console.log("[popup.js] Cart has items:", cartItems.map(({ sku }) => sku));
+    // Enforce the configured free-gift SKU rule using cart DOM data.
+    const guardSku = freeGiftSku;
 
-      // Enforce the configured free-gift SKU rule using API cart data first.
-      const guardSku = freeGiftSku;
-
-      if (!guardSku) {
-        console.warn("[popup.js] Missing data-free-gift-sku. Popup guard rule will be skipped.");
-        console.log("[popup.js] Title:", title);
-        console.log("[popup.js] Image:", image);
-        showPromoPopup(title, image);
-        return;
-      }
-
-      if (enforceGuardSkuRule(cartItems, guardSku)) {
-        return;
-      }
-
+    if (!guardSku) {
+      console.warn("[popup.js] Missing data-free-gift-sku. Popup guard rule will be skipped.");
       console.log("[popup.js] Title:", title);
       console.log("[popup.js] Image:", image);
-
       showPromoPopup(title, image);
-    } catch (err) {
-      console.warn("[popup.js] Could not reach /cart.js, falling back to DOM check:", err.message);
-
-      // Fallback: check DOM for empty cart indicator
-      if (document.querySelector("p.empty_cart")) {
-        console.log("[popup.js] Cart is empty (DOM fallback). Popup will not be shown.");
-        return;
-      }
-
-      showPromoPopup(title, image);
+      return;
     }
+
+    if (enforceGuardSkuRule(cartItems, guardSku)) {
+      return;
+    }
+
+    console.log("[popup.js] Title:", title);
+    console.log("[popup.js] Image:", image);
+
+    showPromoPopup(title, image);
 
   } catch (err) {
     console.error("[popup.js] Initialization error:", err.message);
