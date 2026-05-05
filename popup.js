@@ -299,8 +299,8 @@ function showPromoPopup(title, image) {
         <h2>${title}</h2>
         <img src="${image}" alt="${title}" style="width: 100%; max-width: 200px; margin: 10px 0;">
         <div style="margin-top: 20px;">
-          <button id="add-free-gift" class="btn secondary" style="margin-right: 10px;">Yes</button>
-          <button id="decline-free-gift" class="btn secondary" style="opacity: .6;">No</button>
+          <button id="add-free-gift" class="btn secondary" style="margin-right: 10px;">Claim Here</button>
+          <button id="decline-free-gift" class="btn secondary" style="opacity: .6;">No Thank You</button>
         </div>
       </div>
     `;
