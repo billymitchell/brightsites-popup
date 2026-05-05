@@ -208,35 +208,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
     console.log("[popup.js] Promotion is active.");
 
-    // Don't show popup if the cart is empty
-    if (document.querySelector("p.empty_cart")) {
-      console.log("[popup.js] Cart is empty. Popup will not be shown.");
-      return;
-    } else {
-      const cartSkus = getAllCartSkus();
-      console.log("[popup.js] Cart has items:", cartSkus);
-    }
-
     const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
-
-    // Enforce: if the free gift is the only item in the cart, alert and remove it
-    if (freeGiftSku) {
-      enforceFreeGiftRule(freeGiftSku);
-    }
-
-    // If the free gift is already in the cart (alongside other items), suppress the popup
-    if (freeGiftSku && isFreeGiftInCart(freeGiftSku)) {
-      console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is already in the cart. Skipping popup.`);
-      return;
-    }
-
     const title = scriptTag.getAttribute("data-title") || "Default Title";
     const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
 
-    console.log("[popup.js] Title:", title);
-    console.log("[popup.js] Image:", image);
+    // Use the cart API to reliably check cart contents before showing the popup
+    fetch("/cart.js")
+      .then((res) => res.json())
+      .then((cart) => {
+        console.log("[popup.js] Cart API response:", cart);
 
-    showPromoPopup(title, image);
+        if (!cart.items || cart.items.length === 0) {
+          console.log("[popup.js] Cart is empty (via API). Popup will not be shown.");
+          return;
+        }
+
+        console.log("[popup.js] Cart has items:", cart.items.map((i) => i.sku));
+
+        // Enforce: if the free gift is the only item in the cart, alert and remove it
+        if (freeGiftSku) {
+          enforceFreeGiftRule(freeGiftSku);
+        }
+
+        // If the free gift is already in the cart (alongside other items), suppress the popup
+        if (freeGiftSku && isFreeGiftInCart(freeGiftSku)) {
+          console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is already in the cart. Skipping popup.`);
+          return;
+        }
+
+        console.log("[popup.js] Title:", title);
+        console.log("[popup.js] Image:", image);
+
+        showPromoPopup(title, image);
+      })
+      .catch((err) => {
+        console.warn("[popup.js] Could not reach /cart.js, falling back to DOM check:", err.message);
+
+        // Fallback: check DOM for empty cart indicator
+        if (document.querySelector("p.empty_cart")) {
+          console.log("[popup.js] Cart is empty (DOM fallback). Popup will not be shown.");
+          return;
+        }
+
+        showPromoPopup(title, image);
+      });
 
   } catch (err) {
     console.error("[popup.js] Initialization error:", err.message);
