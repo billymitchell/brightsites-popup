@@ -1,5 +1,8 @@
 console.log("[popup.js] Script loaded.");
 
+// SKU that should never trigger the popup; auto-removed when it is the sole cart item
+const BLOCKED_SKU = "PKPDC2020YZZZ";
+
 /**
  * Checks whether the given SKU is already in the cart DOM.
  * Only intended to run on the /cart page.
@@ -84,6 +87,49 @@ function getAllCartSkus() {
   } catch (err) {
     console.error("[popup.js] getAllCartSkus: unexpected error reading cart SKUs:", err.message);
     return [];
+  }
+}
+
+/**
+ * Finds the cart row for the given SKU and clicks its remove button/link.
+ * @param {string} sku - The SKU to remove from the cart DOM.
+ */
+function removeSkuFromCartDom(sku) {
+  try {
+    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
+    let removed = false;
+
+    for (const label of skuLabels) {
+      if (label.textContent.trim() !== "SKU:") continue;
+
+      const textNode = label.nextSibling;
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+      if (textNode.textContent.trim() !== sku) continue;
+
+      const row = label.closest("tr.cart-item");
+      if (!row) {
+        console.warn(`[popup.js] removeSkuFromCartDom: matched SKU "${sku}" but could not find enclosing 'tr.cart-item'.`);
+        break;
+      }
+
+      // Support both button and anchor remove controls
+      const removeEl = row.querySelector("button.remove-cart-item, a.remove-cart-item");
+      if (!removeEl) {
+        console.warn(`[popup.js] removeSkuFromCartDom: found cart row for SKU "${sku}" but could not locate remove button/link.`);
+        break;
+      }
+
+      console.log(`[popup.js] removeSkuFromCartDom: clicking remove for SKU "${sku}".`);
+      removeEl.click();
+      removed = true;
+      break;
+    }
+
+    if (!removed) {
+      console.error(`[popup.js] removeSkuFromCartDom: failed to remove SKU "${sku}" from the cart.`);
+    }
+  } catch (err) {
+    console.error("[popup.js] removeSkuFromCartDom: unexpected error:", err.message);
   }
 }
 
@@ -225,6 +271,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.log("[popup.js] Cart has items:", cart.items.map((i) => i.sku));
 
+        // Suppress popup for the blocked SKU; remove it silently when it is the sole cart item
+        const blockedInCart = cart.items.some((i) => i.sku === BLOCKED_SKU);
+        if (blockedInCart) {
+          if (cart.items.length === 1) {
+            console.log(`[popup.js] Blocked SKU "${BLOCKED_SKU}" is the only item in the cart. Removing it.`);
+            removeSkuFromCartDom(BLOCKED_SKU);
+          } else {
+            console.log(`[popup.js] Blocked SKU "${BLOCKED_SKU}" is in the cart. Suppressing popup.`);
+          }
+          return;
+        }
+
         // Enforce: if the free gift is the only item in the cart, alert and remove it
         if (freeGiftSku) {
           enforceFreeGiftRule(freeGiftSku);
@@ -300,7 +358,7 @@ function showPromoPopup(title, image) {
         <img src="${image}" alt="${title}" style="width: 100%; max-width: 200px; margin: 10px 0;">
         <div style="margin-top: 20px;">
           <button id="add-free-gift" class="btn secondary" style="margin-right: 10px;">Claim Here</button>
-          <button id="decline-free-gift" class="btn secondary" style="opacity: .6;">No Thank You</button>
+          <button id="decline-free-gift" class="btn secondary" style="opacity: .6;">No Thanks</button>
         </div>
       </div>
     `;
