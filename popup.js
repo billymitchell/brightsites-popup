@@ -1,18 +1,13 @@
 console.log("[popup.js] Script loaded.");
 
 /**
- * Checks whether the given SKU is already in the cart.
- *
- * On the /cart page: parses the cart DOM directly by looking for the SKU
- * text rendered next to the "SKU:" label in each cart row.
- *
- * On other pages: attempts the /cart.js API (Shopify). If unavailable,
- * defaults to false so the popup is not suppressed.
+ * Checks whether the given SKU is already in the cart DOM.
+ * Only intended to run on the /cart page.
  *
  * @param {string} sku - The SKU to look for.
- * @returns {Promise<boolean>} True if the SKU is found in the cart.
+ * @returns {boolean} True if the SKU is found in the cart.
  */
-async function isFreeGiftInCart(sku) {
+function isFreeGiftInCart(sku) {
   // Guard: SKU must be a non-empty string
   if (!sku || typeof sku !== "string" || sku.trim() === "") {
     console.warn("[popup.js] isFreeGiftInCart: received invalid SKU argument:", sku);
@@ -20,65 +15,34 @@ async function isFreeGiftInCart(sku) {
   }
 
   try {
-    const isCartPage = window.location.pathname === "/cart";
-    console.log(`[popup.js] isFreeGiftInCart: checking for SKU "${sku}" (strategy: ${isCartPage ? "DOM" : "API"}).`);
+    // The SKU is rendered as a text node immediately after a
+    // <span class="cart-inline-title-short">SKU: </span> label in each cart row.
+    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
 
-    if (isCartPage) {
-      // On the /cart page the SKU is rendered as a text node immediately after
-      // a <span class="cart-inline-title-short">SKU: </span> label.
-      const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-
-      if (skuLabels.length === 0) {
-        console.warn("[popup.js] isFreeGiftInCart: no SKU label elements found in DOM. Cart may be empty or markup has changed.");
-        return false;
-      }
-
-      for (const label of skuLabels) {
-        if (label.textContent.trim() === "SKU:") {
-          // The SKU value sits in the text node directly after the <span>
-          const textNode = label.nextSibling;
-          if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-            const cartSku = textNode.textContent.trim();
-            if (cartSku === sku) {
-              console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" found in cart DOM.`);
-              return true;
-            }
-          } else {
-            console.warn("[popup.js] isFreeGiftInCart: SKU label found but adjacent text node is missing or unexpected.");
-          }
-        }
-      }
-
-      console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" not found in cart DOM.`);
+    if (skuLabels.length === 0) {
+      console.warn("[popup.js] isFreeGiftInCart: no SKU label elements found in DOM. Cart may be empty or markup has changed.");
       return false;
     }
 
-    // Non-cart pages: attempt the /cart.js API (Shopify-compatible platforms).
-    // This endpoint may not exist on all platforms — failure is handled gracefully.
-    const response = await fetch("/cart.js");
-
-    if (!response.ok) {
-      throw new Error(`Cart API responded with HTTP ${response.status} ${response.statusText}.`);
+    for (const label of skuLabels) {
+      if (label.textContent.trim() === "SKU:") {
+        const textNode = label.nextSibling;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          const cartSku = textNode.textContent.trim();
+          if (cartSku === sku) {
+            console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" found in cart DOM.`);
+            return true;
+          }
+        } else {
+          console.warn("[popup.js] isFreeGiftInCart: SKU label found but adjacent text node is missing or unexpected.");
+        }
+      }
     }
 
-    let cart;
-    try {
-      cart = await response.json();
-    } catch (parseErr) {
-      throw new Error(`Failed to parse /cart.js response as JSON: ${parseErr.message}`);
-    }
-
-    if (!cart || !Array.isArray(cart.items)) {
-      throw new Error("Cart API response is missing expected 'items' array.");
-    }
-
-    const found = cart.items.some((item) => item.sku === sku);
-    console.log(`[popup.js] isFreeGiftInCart: cart API check for SKU "${sku}": ${found ? "found" : "not found"} (${cart.items.length} item(s) in cart).`);
-    return found;
-
+    console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" not found in cart DOM.`);
+    return false;
   } catch (err) {
-    // Fail open — if we can't confirm the SKU is in the cart, don't suppress the popup
-    console.warn("[popup.js] isFreeGiftInCart: could not complete cart check. Defaulting to false.", err.message);
+    console.warn("[popup.js] isFreeGiftInCart: unexpected error checking cart DOM:", err.message);
     return false;
   }
 }
@@ -197,10 +161,17 @@ function enforceFreeGiftRule(freeGiftSku) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
   console.log("[popup.js] DOM fully loaded and parsed.");
 
   try {
+    // Only run on the /cart page
+    const isCartPage = window.location.pathname === "/cart";
+    if (!isCartPage) {
+      console.log("[popup.js] Not on /cart page. Popup will not be shown.");
+      return;
+    }
+
     // Locate the script tag by matching its src — all config is passed via data attributes
     const scriptTag = document.querySelector('script[src*="popup.js"]');
 
@@ -230,65 +201,34 @@ document.addEventListener("DOMContentLoaded", async () => {
     const today = new Date();
     console.log("[popup.js] Today:", today);
 
-    if (today >= promoStart && today <= promoEnd) {
-      console.log("[popup.js] Promotion is active.");
-
-      // On the /cart page, enforce that the free gift cannot be the only item
-      const isCartPage = window.location.pathname === "/cart";
-      const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
-      if (isCartPage && freeGiftSku) {
-        enforceFreeGiftRule(freeGiftSku);
-      }
-
-      // Check if the free gift SKU is already in the cart — if so, suppress the popup
-      
-      if (freeGiftSku) {
-        const skuInCart = await isFreeGiftInCart(freeGiftSku);
-        if (skuInCart) {
-          console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is already in the cart. Skipping popup.`);
-          return;
-        }
-      }
-
-      // Determine whether to show the popup:
-      // - Always show on the /cart page
-      // - Otherwise, only show once per session (tracked via sessionStorage)
-      
-      // Read session flag — guarded in case sessionStorage is unavailable
-      let hasSeenPopup = false;
-      try {
-        hasSeenPopup = sessionStorage.getItem("promoPopupSeen") === "true";
-      } catch (storageErr) {
-        console.warn("[popup.js] Could not read sessionStorage. Treating as first visit.", storageErr.message);
-      }
-
-      console.log("[popup.js] Is cart page:", isCartPage);
-      console.log("[popup.js] Has seen popup this session:", hasSeenPopup);
-
-      if (!isCartPage && hasSeenPopup) {
-        console.log("[popup.js] Popup already shown this session and not on /cart. Skipping.");
-        return;
-      }
-
-      const title = scriptTag.getAttribute("data-title") || "Default Title";
-      const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
-
-      console.log("[popup.js] Title:", title);
-      console.log("[popup.js] Image:", image);
-
-      // Mark popup as seen for this session (cart page always re-shows).
-      // Wrapped in try/catch — sessionStorage can throw in some private browsing environments.
-      try {
-        sessionStorage.setItem("promoPopupSeen", "true");
-        console.log("[popup.js] Session storage updated: promoPopupSeen = true.");
-      } catch (storageErr) {
-        console.warn("[popup.js] Could not write to sessionStorage. Popup may show on every page load.", storageErr.message);
-      }
-
-      showPromoPopup(title, image);
-    } else {
+    if (today < promoStart || today > promoEnd) {
       console.log("[popup.js] Promotion is not active. Current date is outside the promo window.");
+      return;
     }
+
+    console.log("[popup.js] Promotion is active.");
+
+    const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
+
+    // Enforce: if the free gift is the only item in the cart, alert and remove it
+    if (freeGiftSku) {
+      enforceFreeGiftRule(freeGiftSku);
+    }
+
+    // If the free gift is already in the cart (alongside other items), suppress the popup
+    if (freeGiftSku && isFreeGiftInCart(freeGiftSku)) {
+      console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is already in the cart. Skipping popup.`);
+      return;
+    }
+
+    const title = scriptTag.getAttribute("data-title") || "Default Title";
+    const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
+
+    console.log("[popup.js] Title:", title);
+    console.log("[popup.js] Image:", image);
+
+    showPromoPopup(title, image);
+
   } catch (err) {
     console.error("[popup.js] Initialization error:", err.message);
   }
