@@ -1,7 +1,5 @@
 console.log("[popup.js] Script loaded.");
 
-// SKU that should never trigger the popup; auto-removed when it is the sole cart item
-const BLOCKED_SKU = "PKPDC2020YZZZ";
 const POPUP_SCRIPT_SELECTOR = 'script[src*="popup.js"]';
 
 
@@ -160,8 +158,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.log("[popup.js] Cart has items:", cartItems.map(({ sku }) => sku));
 
       // Enforce the configured free-gift SKU rule using API cart data first.
-      // If data-free-gift-sku is not set, fall back to BLOCKED_SKU.
-      const guardSku = freeGiftSku || BLOCKED_SKU;
+      const guardSku = freeGiftSku;
+
+      if (!guardSku) {
+        console.warn("[popup.js] Missing data-free-gift-sku. Popup guard rule will be skipped.");
+        console.log("[popup.js] Title:", title);
+        console.log("[popup.js] Image:", image);
+        showPromoPopup(title, image);
+        return;
+      }
 
       if (enforceGuardSkuRule(cartItems, guardSku)) {
         return;
