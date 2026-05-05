@@ -13,43 +13,72 @@ console.log("[popup.js] Script loaded.");
  * @returns {Promise<boolean>} True if the SKU is found in the cart.
  */
 async function isFreeGiftInCart(sku) {
+  // Guard: SKU must be a non-empty string
+  if (!sku || typeof sku !== "string" || sku.trim() === "") {
+    console.warn("[popup.js] isFreeGiftInCart: received invalid SKU argument:", sku);
+    return false;
+  }
+
   try {
     const isCartPage = window.location.pathname === "/cart";
+    console.log(`[popup.js] isFreeGiftInCart: checking for SKU "${sku}" (strategy: ${isCartPage ? "DOM" : "API"}).`);
 
     if (isCartPage) {
-      // On the /cart page, the SKU is rendered in the DOM next to a
-      // <span class="cart-inline-title-short">SKU: </span> label.
-      // Walk all such labels and check the following text node for a match.
+      // On the /cart page the SKU is rendered as a text node immediately after
+      // a <span class="cart-inline-title-short">SKU: </span> label.
       const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
+
+      if (skuLabels.length === 0) {
+        console.warn("[popup.js] isFreeGiftInCart: no SKU label elements found in DOM. Cart may be empty or markup has changed.");
+        return false;
+      }
+
       for (const label of skuLabels) {
         if (label.textContent.trim() === "SKU:") {
-          // The SKU value is the text node immediately after the <span>
+          // The SKU value sits in the text node directly after the <span>
           const textNode = label.nextSibling;
           if (textNode && textNode.nodeType === Node.TEXT_NODE) {
             const cartSku = textNode.textContent.trim();
             if (cartSku === sku) {
-              console.log(`[popup.js] SKU "${sku}" found in cart DOM.`);
+              console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" found in cart DOM.`);
               return true;
             }
+          } else {
+            console.warn("[popup.js] isFreeGiftInCart: SKU label found but adjacent text node is missing or unexpected.");
           }
         }
       }
-      console.log(`[popup.js] SKU "${sku}" not found in cart DOM.`);
+
+      console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" not found in cart DOM.`);
       return false;
     }
 
-    // Non-cart pages: attempt the /cart.js API (Shopify-compatible platforms)
+    // Non-cart pages: attempt the /cart.js API (Shopify-compatible platforms).
+    // This endpoint may not exist on all platforms — failure is handled gracefully.
     const response = await fetch("/cart.js");
+
     if (!response.ok) {
-      throw new Error(`Cart API responded with status ${response.status}`);
+      throw new Error(`Cart API responded with HTTP ${response.status} ${response.statusText}.`);
     }
-    const cart = await response.json();
+
+    let cart;
+    try {
+      cart = await response.json();
+    } catch (parseErr) {
+      throw new Error(`Failed to parse /cart.js response as JSON: ${parseErr.message}`);
+    }
+
+    if (!cart || !Array.isArray(cart.items)) {
+      throw new Error("Cart API response is missing expected 'items' array.");
+    }
+
     const found = cart.items.some((item) => item.sku === sku);
-    console.log(`[popup.js] Checked cart API for SKU "${sku}": ${found ? "found" : "not found"}`);
+    console.log(`[popup.js] isFreeGiftInCart: cart API check for SKU "${sku}": ${found ? "found" : "not found"} (${cart.items.length} item(s) in cart).`);
     return found;
+
   } catch (err) {
-    // If the check fails, default to showing the popup rather than suppressing it
-    console.warn("[popup.js] Could not check cart for SKU:", err.message);
+    // Fail open — if we can't confirm the SKU is in the cart, don't suppress the popup
+    console.warn("[popup.js] isFreeGiftInCart: could not complete cart check. Defaulting to false.", err.message);
     return false;
   }
 }
@@ -60,19 +89,38 @@ async function isFreeGiftInCart(sku) {
  * @returns {string[]} Array of SKU strings found in the cart.
  */
 function getAllCartSkus() {
-  const skus = [];
-  const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-  for (const label of skuLabels) {
-    if (label.textContent.trim() === "SKU:") {
-      const textNode = label.nextSibling;
-      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-        const sku = textNode.textContent.trim();
-        if (sku) skus.push(sku);
+  try {
+    const skus = [];
+    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
+
+    if (skuLabels.length === 0) {
+      console.warn("[popup.js] getAllCartSkus: no SKU label elements found. Cart may be empty or markup has changed.");
+      return skus;
+    }
+
+    for (const label of skuLabels) {
+      if (label.textContent.trim() === "SKU:") {
+        // The SKU value is the text node immediately following the <span> label
+        const textNode = label.nextSibling;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          const sku = textNode.textContent.trim();
+          if (sku) {
+            skus.push(sku);
+          } else {
+            console.warn("[popup.js] getAllCartSkus: found a SKU label with an empty text node.");
+          }
+        } else {
+          console.warn("[popup.js] getAllCartSkus: SKU label found but adjacent text node is missing or unexpected.");
+        }
       }
     }
+
+    console.log(`[popup.js] getAllCartSkus: found ${skus.length} SKU(s) in cart:`, skus);
+    return skus;
+  } catch (err) {
+    console.error("[popup.js] getAllCartSkus: unexpected error reading cart SKUs:", err.message);
+    return [];
   }
-  console.log("[popup.js] All SKUs in cart:", skus);
-  return skus;
 }
 
 /**
@@ -81,53 +129,71 @@ function getAllCartSkus() {
  * @param {string} freeGiftSku - The free gift SKU to check against.
  */
 function enforceFreeGiftRule(freeGiftSku) {
+  // Guard: SKU must be a non-empty string
+  if (!freeGiftSku || typeof freeGiftSku !== "string" || freeGiftSku.trim() === "") {
+    console.warn("[popup.js] enforceFreeGiftRule: received invalid freeGiftSku argument:", freeGiftSku);
+    return;
+  }
+
   try {
     const cartSkus = getAllCartSkus();
+    console.log(`[popup.js] enforceFreeGiftRule: cart contains ${cartSkus.length} SKU(s). Checking if free gift is sole item.`);
 
-    // Only enforce if the free gift is present and is the sole item
-    const onlyFreeGift =
-      cartSkus.length === 1 && cartSkus[0] === freeGiftSku;
+    // Only enforce if the cart contains exactly one item AND that item is the free gift
+    const freeGiftIsPresent = cartSkus.includes(freeGiftSku);
+    const onlyFreeGift = cartSkus.length === 1 && freeGiftIsPresent;
 
-    if (!onlyFreeGift) {
-      console.log("[popup.js] Free gift rule: cart has other items or free gift not present. No action needed.");
+    if (!freeGiftIsPresent) {
+      console.log(`[popup.js] enforceFreeGiftRule: free gift SKU "${freeGiftSku}" is not in the cart. No action needed.`);
       return;
     }
 
-    console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is the only item in the cart. Alerting user and removing it.`);
-
-    alert("The free gift must be purchased together with another item. It has been removed from your cart.");
-
-    // Find the cart row containing the free gift SKU and click its Remove button
-    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-    for (const label of skuLabels) {
-      if (label.textContent.trim() === "SKU:") {
-        const textNode = label.nextSibling;
-        if (
-          textNode &&
-          textNode.nodeType === Node.TEXT_NODE &&
-          textNode.textContent.trim() === freeGiftSku
-        ) {
-          // Walk up to the <tr class="cart-item"> and find the Remove button within it
-          const row = label.closest("tr.cart-item");
-          if (!row) {
-            console.warn("[popup.js] Could not find cart row for free gift SKU.");
-            return;
-          }
-          const removeBtn = row.querySelector("button.remove-cart-item");
-          if (!removeBtn) {
-            console.warn("[popup.js] Could not find Remove button in the free gift cart row.");
-            return;
-          }
-          console.log("[popup.js] Clicking Remove button for free gift item.");
-          removeBtn.click();
-          return;
-        }
-      }
+    if (!onlyFreeGift) {
+      console.log(`[popup.js] enforceFreeGiftRule: free gift is in the cart alongside other items. No action needed.`);
+      return;
     }
 
-    console.warn("[popup.js] Could not locate the free gift row to remove.");
+    // Free gift is the sole cart item — alert the user then auto-remove it
+    console.log(`[popup.js] enforceFreeGiftRule: free gift SKU "${freeGiftSku}" is the only item in the cart. Alerting user.`);
+    alert("The free gift must be purchased together with another item. It has been removed from your cart.");
+
+    // Locate the cart row for the free gift SKU by re-scanning SKU labels
+    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
+    let removed = false;
+
+    for (const label of skuLabels) {
+      if (label.textContent.trim() !== "SKU:") continue;
+
+      const textNode = label.nextSibling;
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+      if (textNode.textContent.trim() !== freeGiftSku) continue;
+
+      // Walk up to the enclosing <tr class="cart-item">
+      const row = label.closest("tr.cart-item");
+      if (!row) {
+        console.warn("[popup.js] enforceFreeGiftRule: matched SKU label but could not find enclosing 'tr.cart-item'. Markup may have changed.");
+        break;
+      }
+
+      // Find the Remove button inside the row
+      const removeBtn = row.querySelector("button.remove-cart-item");
+      if (!removeBtn) {
+        console.warn("[popup.js] enforceFreeGiftRule: found cart row but could not find 'button.remove-cart-item' within it. Markup may have changed.");
+        break;
+      }
+
+      console.log("[popup.js] enforceFreeGiftRule: clicking Remove button for free gift item.");
+      removeBtn.click();
+      removed = true;
+      break;
+    }
+
+    if (!removed) {
+      console.error(`[popup.js] enforceFreeGiftRule: failed to remove free gift SKU "${freeGiftSku}" from the cart. The Remove button could not be located.`);
+    }
+
   } catch (err) {
-    console.error("[popup.js] Error enforcing free gift rule:", err.message);
+    console.error("[popup.js] enforceFreeGiftRule: unexpected error:", err.message);
   }
 }
 
@@ -188,7 +254,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       // - Always show on the /cart page
       // - Otherwise, only show once per session (tracked via sessionStorage)
       
-      const hasSeenPopup = sessionStorage.getItem("promoPopupSeen") === "true";
+      // Read session flag — guarded in case sessionStorage is unavailable
+      let hasSeenPopup = false;
+      try {
+        hasSeenPopup = sessionStorage.getItem("promoPopupSeen") === "true";
+      } catch (storageErr) {
+        console.warn("[popup.js] Could not read sessionStorage. Treating as first visit.", storageErr.message);
+      }
 
       console.log("[popup.js] Is cart page:", isCartPage);
       console.log("[popup.js] Has seen popup this session:", hasSeenPopup);
@@ -204,8 +276,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.log("[popup.js] Title:", title);
       console.log("[popup.js] Image:", image);
 
-      // Mark popup as seen for this session (cart page always re-shows)
-      sessionStorage.setItem("promoPopupSeen", "true");
+      // Mark popup as seen for this session (cart page always re-shows).
+      // Wrapped in try/catch — sessionStorage can throw in some private browsing environments.
+      try {
+        sessionStorage.setItem("promoPopupSeen", "true");
+        console.log("[popup.js] Session storage updated: promoPopupSeen = true.");
+      } catch (storageErr) {
+        console.warn("[popup.js] Could not write to sessionStorage. Popup may show on every page load.", storageErr.message);
+      }
 
       showPromoPopup(title, image);
     } else {
@@ -303,9 +381,23 @@ function addFreeGiftToCart() {
     }
 
     const freeGiftPageUrl = scriptTag.getAttribute("data-free-gift-url") || "/default-product-url";
-    console.log("[popup.js] Redirecting to free gift URL:", freeGiftPageUrl);
 
-    window.location.href = freeGiftPageUrl;
+    // Validate the URL is a relative path or same-origin absolute URL before redirecting
+    // to prevent open-redirect vulnerabilities from tampered data attributes.
+    let safeUrl;
+    try {
+      const parsed = new URL(freeGiftPageUrl, window.location.origin);
+      if (parsed.origin !== window.location.origin) {
+        throw new Error(`Redirect target "${freeGiftPageUrl}" points to a different origin (${parsed.origin}). Redirect blocked.`);
+      }
+      safeUrl = parsed.pathname + parsed.search + parsed.hash;
+    } catch (urlErr) {
+      console.error("[popup.js] addFreeGiftToCart: invalid or unsafe redirect URL:", urlErr.message);
+      return;
+    }
+
+    console.log("[popup.js] addFreeGiftToCart: redirecting to:", safeUrl);
+    window.location.href = safeUrl;
   } catch (err) {
     console.error("[popup.js] Error redirecting to free gift page:", err.message);
   }
