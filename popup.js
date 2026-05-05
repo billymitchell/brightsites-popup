@@ -212,6 +212,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.querySelector("p.empty_cart")) {
       console.log("[popup.js] Cart is empty. Popup will not be shown.");
       return;
+    } else {
+      const cartSkus = getAllCartSkus();
+      console.log("[popup.js] Cart has items:", cartSkus);
     }
 
     const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
