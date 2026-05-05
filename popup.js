@@ -2,99 +2,14 @@ console.log("[popup.js] Script loaded.");
 
 // SKU that should never trigger the popup; auto-removed when it is the sole cart item
 const BLOCKED_SKU = "PKPDC2020YZZZ";
+const POPUP_SCRIPT_SELECTOR = 'script[src*="popup.js"]';
 
-/**
- * Checks whether the given SKU is already in the cart DOM.
- * Only intended to run on the /cart page.
- *
- * @param {string} sku - The SKU to look for.
- * @returns {boolean} True if the SKU is found in the cart.
- */
-function isFreeGiftInCart(sku) {
-  // Guard: SKU must be a non-empty string
-  if (!sku || typeof sku !== "string" || sku.trim() === "") {
-    console.warn("[popup.js] isFreeGiftInCart: received invalid SKU argument:", sku);
-    return false;
-  }
-
-  try {
-    // The SKU is rendered as a text node immediately after a
-    // <span class="cart-inline-title-short">SKU: </span> label in each cart row.
-    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-
-    if (skuLabels.length === 0) {
-      console.warn("[popup.js] isFreeGiftInCart: no SKU label elements found in DOM. Cart may be empty or markup has changed.");
-      return false;
-    }
-
-    for (const label of skuLabels) {
-      if (label.textContent.trim() === "SKU:") {
-        const textNode = label.nextSibling;
-        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-          const cartSku = textNode.textContent.trim();
-          if (cartSku === sku) {
-            console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" found in cart DOM.`);
-            return true;
-          }
-        } else {
-          console.warn("[popup.js] isFreeGiftInCart: SKU label found but adjacent text node is missing or unexpected.");
-        }
-      }
-    }
-
-    console.log(`[popup.js] isFreeGiftInCart: SKU "${sku}" not found in cart DOM.`);
-    return false;
-  } catch (err) {
-    console.warn("[popup.js] isFreeGiftInCart: unexpected error checking cart DOM:", err.message);
-    return false;
-  }
-}
-
-/**
- * Returns all SKUs present in the cart DOM on the /cart page.
- * Reads the text node following each "SKU:" label in the cart table.
- * @returns {string[]} Array of SKU strings found in the cart.
- */
-function getAllCartSkus() {
-  try {
-    const skus = [];
-    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-
-    if (skuLabels.length === 0) {
-      console.warn("[popup.js] getAllCartSkus: no SKU label elements found. Cart may be empty or markup has changed.");
-      return skus;
-    }
-
-    for (const label of skuLabels) {
-      if (label.textContent.trim() === "SKU:") {
-        // The SKU value is the text node immediately following the <span> label
-        const textNode = label.nextSibling;
-        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-          const sku = textNode.textContent.trim();
-          if (sku) {
-            skus.push(sku);
-          } else {
-            console.warn("[popup.js] getAllCartSkus: found a SKU label with an empty text node.");
-          }
-        } else {
-          console.warn("[popup.js] getAllCartSkus: SKU label found but adjacent text node is missing or unexpected.");
-        }
-      }
-    }
-
-    console.log(`[popup.js] getAllCartSkus: found ${skus.length} SKU(s) in cart:`, skus);
-    return skus;
-  } catch (err) {
-    console.error("[popup.js] getAllCartSkus: unexpected error reading cart SKUs:", err.message);
-    return [];
-  }
-}
 
 /**
  * Finds the cart row for the given SKU and clicks its remove button/link.
  * @param {string} sku - The SKU to remove from the cart DOM.
  */
-function removeSkuFromCartDom(sku) {
+const removeSkuFromCartDom = (sku) => {
   try {
     const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
     let removed = false;
@@ -131,83 +46,72 @@ function removeSkuFromCartDom(sku) {
   } catch (err) {
     console.error("[popup.js] removeSkuFromCartDom: unexpected error:", err.message);
   }
-}
+};
 
 /**
- * On the /cart page, checks if the free gift is the ONLY item in the cart.
- * If so, alerts the user and clicks the item's Remove button to auto-remove it.
- * @param {string} freeGiftSku - The free gift SKU to check against.
+ * Locates the popup script tag by src and throws if it is missing.
+ * @returns {HTMLScriptElement}
  */
-function enforceFreeGiftRule(freeGiftSku) {
-  // Guard: SKU must be a non-empty string
-  if (!freeGiftSku || typeof freeGiftSku !== "string" || freeGiftSku.trim() === "") {
-    console.warn("[popup.js] enforceFreeGiftRule: received invalid freeGiftSku argument:", freeGiftSku);
-    return;
+const getPopupScriptTagOrThrow = () => {
+  // Locate the script tag by matching its src — all config is passed via data attributes
+  const scriptTag = document.querySelector(POPUP_SCRIPT_SELECTOR);
+
+  if (!scriptTag) {
+    throw new Error("Could not find <script> tag with src containing 'popup.js'. Ensure the script is loaded correctly.");
   }
 
-  try {
-    const cartSkus = getAllCartSkus();
-    console.log(`[popup.js] enforceFreeGiftRule: cart contains ${cartSkus.length} SKU(s). Checking if free gift is sole item.`);
+  return scriptTag;
+};
 
-    // Only enforce if the cart contains exactly one item AND that item is the free gift
-    const freeGiftIsPresent = cartSkus.includes(freeGiftSku);
-    const onlyFreeGift = cartSkus.length === 1 && freeGiftIsPresent;
+/**
+ * Reads and validates promo date range from script data attributes.
+ * @param {HTMLScriptElement} scriptTag
+ * @returns {{promoStart: Date, promoEnd: Date}}
+ */
+const getPromoWindowOrThrow = (scriptTag) => {
+  // Read and validate promo date range
+  const promoStartAttr = scriptTag.getAttribute("data-promo-start");
+  const promoEndAttr = scriptTag.getAttribute("data-promo-end");
 
-    if (!freeGiftIsPresent) {
-      console.log(`[popup.js] enforceFreeGiftRule: free gift SKU "${freeGiftSku}" is not in the cart. No action needed.`);
-      return;
-    }
-
-    if (!onlyFreeGift) {
-      console.log(`[popup.js] enforceFreeGiftRule: free gift is in the cart alongside other items. No action needed.`);
-      return;
-    }
-
-    // Free gift is the sole cart item — alert the user then auto-remove it
-    console.log(`[popup.js] enforceFreeGiftRule: free gift SKU "${freeGiftSku}" is the only item in the cart. Alerting user.`);
-    alert("The free gift must be purchased together with another item. It has been removed from your cart.");
-
-    // Locate the cart row for the free gift SKU by re-scanning SKU labels
-    const skuLabels = document.querySelectorAll("span.cart-inline-title-short");
-    let removed = false;
-
-    for (const label of skuLabels) {
-      if (label.textContent.trim() !== "SKU:") continue;
-
-      const textNode = label.nextSibling;
-      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
-      if (textNode.textContent.trim() !== freeGiftSku) continue;
-
-      // Walk up to the enclosing <tr class="cart-item">
-      const row = label.closest("tr.cart-item");
-      if (!row) {
-        console.warn("[popup.js] enforceFreeGiftRule: matched SKU label but could not find enclosing 'tr.cart-item'. Markup may have changed.");
-        break;
-      }
-
-      // Find the Remove button inside the row
-      const removeBtn = row.querySelector("button.remove-cart-item");
-      if (!removeBtn) {
-        console.warn("[popup.js] enforceFreeGiftRule: found cart row but could not find 'button.remove-cart-item' within it. Markup may have changed.");
-        break;
-      }
-
-      console.log("[popup.js] enforceFreeGiftRule: clicking Remove button for free gift item.");
-      removeBtn.click();
-      removed = true;
-      break;
-    }
-
-    if (!removed) {
-      console.error(`[popup.js] enforceFreeGiftRule: failed to remove free gift SKU "${freeGiftSku}" from the cart. The Remove button could not be located.`);
-    }
-
-  } catch (err) {
-    console.error("[popup.js] enforceFreeGiftRule: unexpected error:", err.message);
+  if (!promoStartAttr || !promoEndAttr) {
+    throw new Error("Missing required data attributes: data-promo-start and/or data-promo-end.");
   }
-}
 
-document.addEventListener("DOMContentLoaded", () => {
+  const promoStart = new Date(promoStartAttr);
+  const promoEnd = new Date(promoEndAttr);
+
+  if (isNaN(promoStart.getTime()) || isNaN(promoEnd.getTime())) {
+    throw new Error(`Invalid date format. data-promo-start: "${promoStartAttr}", data-promo-end: "${promoEndAttr}"`);
+  }
+
+  return { promoStart, promoEnd };
+};
+
+/**
+ * Enforces free-gift-only cart rule.
+ * @param {Array<{sku?: string}>} cartItems
+ * @param {string} guardSku
+ * @returns {boolean} True when popup should be suppressed.
+ */
+const enforceGuardSkuRule = (cartItems, guardSku) => {
+  const guardSkuInCart = cartItems.some((item) => item.sku === guardSku);
+
+  if (!guardSkuInCart) {
+    return false;
+  }
+
+  if (cartItems.length === 1) {
+    console.log(`[popup.js] Guard SKU "${guardSku}" is the only item in the cart. Alerting and removing it.`);
+    alert("This free gift must be purchased with another item. It has been removed from your cart.");
+    removeSkuFromCartDom(guardSku);
+  } else {
+    console.log(`[popup.js] Guard SKU "${guardSku}" is already in the cart with other item(s). Suppressing popup.`);
+  }
+
+  return true;
+};
+
+document.addEventListener("DOMContentLoaded", async () => {
   console.log("[popup.js] DOM fully loaded and parsed.");
 
   try {
@@ -218,27 +122,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Locate the script tag by matching its src — all config is passed via data attributes
-    const scriptTag = document.querySelector('script[src*="popup.js"]');
-
-    if (!scriptTag) {
-      throw new Error("Could not find <script> tag with src containing 'popup.js'. Ensure the script is loaded correctly.");
-    }
-
-    // Read and validate promo date range
-    const promoStartAttr = scriptTag.getAttribute("data-promo-start");
-    const promoEndAttr = scriptTag.getAttribute("data-promo-end");
-
-    if (!promoStartAttr || !promoEndAttr) {
-      throw new Error("Missing required data attributes: data-promo-start and/or data-promo-end.");
-    }
-
-    const promoStart = new Date(promoStartAttr);
-    const promoEnd = new Date(promoEndAttr);
-
-    if (isNaN(promoStart.getTime()) || isNaN(promoEnd.getTime())) {
-      throw new Error(`Invalid date format. data-promo-start: "${promoStartAttr}", data-promo-end: "${promoEndAttr}"`);
-    }
+    const scriptTag = getPopupScriptTagOrThrow();
+    const { promoStart, promoEnd } = getPromoWindowOrThrow(scriptTag);
 
     console.log("[popup.js] Promo Start:", promoStart);
     console.log("[popup.js] Promo End:", promoEnd);
@@ -255,61 +140,48 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("[popup.js] Promotion is active.");
 
     const freeGiftSku = scriptTag.getAttribute("data-free-gift-sku");
-    const title = scriptTag.getAttribute("data-title") || "Default Title";
-    const image = scriptTag.getAttribute("data-image") || "/default-image.jpg";
+    const title = scriptTag.getAttribute("data-title") ?? "Default Title";
+    const image = scriptTag.getAttribute("data-image") ?? "/default-image.jpg";
 
     // Use the cart API to reliably check cart contents before showing the popup
-    fetch("/cart.js")
-      .then((res) => res.json())
-      .then((cart) => {
-        console.log("[popup.js] Cart API response:", cart);
+    try {
+      const res = await fetch("/cart.js");
+      const cart = await res.json();
+      console.log("[popup.js] Cart API response:", cart);
 
-        if (!cart.items || cart.items.length === 0) {
-          console.log("[popup.js] Cart is empty (via API). Popup will not be shown.");
-          return;
-        }
+      const { items = [] } = cart || {};
+      const cartItems = Array.isArray(items) ? items : [];
 
-        console.log("[popup.js] Cart has items:", cart.items.map((i) => i.sku));
+      if (cartItems.length === 0) {
+        console.log("[popup.js] Cart is empty (via API). Popup will not be shown.");
+        return;
+      }
 
-        // Suppress popup for the blocked SKU; remove it silently when it is the sole cart item
-        const blockedInCart = cart.items.some((i) => i.sku === BLOCKED_SKU);
-        if (blockedInCart) {
-          if (cart.items.length === 1) {
-            console.log(`[popup.js] Blocked SKU "${BLOCKED_SKU}" is the only item in the cart. Removing it.`);
-            removeSkuFromCartDom(BLOCKED_SKU);
-          } else {
-            console.log(`[popup.js] Blocked SKU "${BLOCKED_SKU}" is in the cart. Suppressing popup.`);
-          }
-          return;
-        }
+      console.log("[popup.js] Cart has items:", cartItems.map(({ sku }) => sku));
 
-        // Enforce: if the free gift is the only item in the cart, alert and remove it
-        if (freeGiftSku) {
-          enforceFreeGiftRule(freeGiftSku);
-        }
+      // Enforce the configured free-gift SKU rule using API cart data first.
+      // If data-free-gift-sku is not set, fall back to BLOCKED_SKU.
+      const guardSku = freeGiftSku || BLOCKED_SKU;
 
-        // If the free gift is already in the cart (alongside other items), suppress the popup
-        if (freeGiftSku && isFreeGiftInCart(freeGiftSku)) {
-          console.log(`[popup.js] Free gift SKU "${freeGiftSku}" is already in the cart. Skipping popup.`);
-          return;
-        }
+      if (enforceGuardSkuRule(cartItems, guardSku)) {
+        return;
+      }
 
-        console.log("[popup.js] Title:", title);
-        console.log("[popup.js] Image:", image);
+      console.log("[popup.js] Title:", title);
+      console.log("[popup.js] Image:", image);
 
-        showPromoPopup(title, image);
-      })
-      .catch((err) => {
-        console.warn("[popup.js] Could not reach /cart.js, falling back to DOM check:", err.message);
+      showPromoPopup(title, image);
+    } catch (err) {
+      console.warn("[popup.js] Could not reach /cart.js, falling back to DOM check:", err.message);
 
-        // Fallback: check DOM for empty cart indicator
-        if (document.querySelector("p.empty_cart")) {
-          console.log("[popup.js] Cart is empty (DOM fallback). Popup will not be shown.");
-          return;
-        }
+      // Fallback: check DOM for empty cart indicator
+      if (document.querySelector("p.empty_cart")) {
+        console.log("[popup.js] Cart is empty (DOM fallback). Popup will not be shown.");
+        return;
+      }
 
-        showPromoPopup(title, image);
-      });
+      showPromoPopup(title, image);
+    }
 
   } catch (err) {
     console.error("[popup.js] Initialization error:", err.message);
@@ -321,7 +193,7 @@ document.addEventListener("DOMContentLoaded", () => {
  * @param {string} title - The promo headline displayed in the popup.
  * @param {string} image - URL of the promo image.
  */
-function showPromoPopup(title, image) {
+const showPromoPopup = (title, image) => {
   try {
     // Prevent duplicate popups if the script is somehow called twice
     if (document.getElementById("promo-popup")) {
@@ -388,21 +260,17 @@ function showPromoPopup(title, image) {
   } catch (err) {
     console.error("[popup.js] Error showing popup:", err.message);
   }
-}
+};
 
 /**
  * Redirects the user to the free gift product page.
  * The URL is read from the script tag's data-free-gift-url attribute.
  */
-function addFreeGiftToCart() {
+const addFreeGiftToCart = () => {
   try {
-    const scriptTag = document.querySelector('script[src*="popup.js"]');
+    const scriptTag = getPopupScriptTagOrThrow();
 
-    if (!scriptTag) {
-      throw new Error("Could not find script tag to read data-free-gift-url.");
-    }
-
-    const freeGiftPageUrl = scriptTag.getAttribute("data-free-gift-url") || "/default-product-url";
+    const freeGiftPageUrl = scriptTag.getAttribute("data-free-gift-url") ?? "/default-product-url";
 
     // Validate the URL is a relative path or same-origin absolute URL before redirecting
     // to prevent open-redirect vulnerabilities from tampered data attributes.
@@ -423,12 +291,12 @@ function addFreeGiftToCart() {
   } catch (err) {
     console.error("[popup.js] Error redirecting to free gift page:", err.message);
   }
-}
+};
 
 /**
  * Removes the popup from the DOM if it exists.
  */
-function closePopup() {
+const closePopup = () => {
   const popup = document.getElementById("promo-popup");
   if (popup) {
     popup.remove();
@@ -436,4 +304,4 @@ function closePopup() {
   } else {
     console.warn("[popup.js] closePopup called but no popup found in DOM.");
   }
-}
+};
